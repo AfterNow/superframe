@@ -47,6 +47,12 @@
 	document.registerElement('a-timeline');
 	document.registerElement('a-timeline-group');
 	document.registerElement('a-timeline-animation');
+	AFRAME.registerComponent('a-timeline-model-animation', {
+	    schema: {
+	        id: {type: 'string'},
+	        duration: {type: 'number', default: 0}
+	    }
+	});
 
 	AFRAME.registerComponent('animation-timeline', {
 	  schema: {
@@ -77,6 +83,8 @@
 	    this.time = 0;
 	    this.timeline = null;
 
+	    this.modelAnimationTimeline = [];
+
 	    // Wait for start events.
 	    for (i = 0; i < data.startEvents.length; i++) {
 	      this.el.addEventListener(data.startEvents[i], this.beginAnimation);
@@ -94,9 +102,29 @@
 	  },
 
 	  tick: function (t, dt) {
-	    if (!this.animationIsPlaying || !this.timeline) { return; }
-	    this.time += dt;
-	    this.timeline.tick(this.time);
+	    var self = this;
+	    if (!self.animationIsPlaying || !self.timeline) { return; }
+	    self.time += dt;
+	    self.timeline.tick(self.time);
+
+	    self.modelAnimationTimeline.forEach(function(modelAnim) {
+	        if (modelAnim) {
+	            var selector = self.el.querySelector(modelAnim.id).getAttribute('select');
+
+	            if (modelAnim.time < self.time) {
+	                // Play
+	                var _el = self.el.sceneEl.querySelector(selector);
+	                _el.removeAttribute('animation-mixer');
+	                _el.setAttribute('animation-mixer', {
+	                    loop: 'once',
+	                    clip: '*'
+	                });
+
+	                modelAnim.time = self.timeline.duration + modelAnim.time;
+	            }
+	        }
+	    });
+
 	  },
 
 	  /**
@@ -127,6 +155,16 @@
 	      complete: function () {
 	        self.animationIsPlaying = false;
 	        self.el.emit('animationtimelinecomplete', self.eventDetail);
+
+	        // Stop all model animations
+	        self.modelAnimationTimeline.forEach(function(modelAnim) {
+	            if (modelAnim) {
+	                var selector = self.el.querySelector(modelAnim.id).getAttribute('select');
+	                self.el.sceneEl
+	                    .querySelector(selector)
+	                    .removeAttribute('animation-mixer');
+	            }
+	        });
 	      },
 	      direction: this.data.direction,
 	      loop: this.data.loop
@@ -169,17 +207,33 @@
 	    var i;
 	    var select;
 
+	    if (animationEl.tagName == 'A-TIMELINE-MODEL-ANIMATION') {
+	        select = animationEl.getAttribute('select');
+	        additionalOffset = parseFloat(animationEl.getAttribute('duration')) || 0;
+
+	        var finalTime = offset + additionalOffset;
+
+	        var modelAnim = {
+	            id: '#' + animationEl.id,
+	            time: finalTime
+	        };
+	        this.modelAnimationTimeline.push(modelAnim);
+
+	        return finalTime
+	    }
+
 	    animationName = 'animation__' + animationEl.getAttribute('name');
 	    select = animationEl.getAttribute('select');
 	    els = this.el.sceneEl.querySelectorAll(select);
 
 	    if (!els.length) {
+
 	      console.warn('[animation-timeline] No entities found for select="' +
 	                    select + '"');
 	      return 0;
 	    }
 
-	    additionalOffset = parseFloat(animationEl.getAttribute('offset') || 0, 10)
+	    additionalOffset = parseFloat(animationEl.getAttribute('offset') || 0, 10);
 
 	    for (i = 0; i < els.length; i++) {
 	      component = els[i].components[animationName];
